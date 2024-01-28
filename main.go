@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
+	"fmt"
 	"log"
 	"math/big"
 	"net/http"
@@ -15,19 +15,24 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"gopkg.in/yaml.v2"
 )
 
 const messageUrl = "https://api.pushover.net/1/messages.json"
-const appToken = "<YOUR APP TOKEN HERE>"
+const configPath = "config.yml"
 
 var spaceCapitalRegex = regexp.MustCompile("([a-z'])([A-Z])")
+var config = Config{}
 
-var serverAddress = flag.String("addr", "127.0.0.1:10501", "ACT/INNACT websocket server address")
-var pushoverUserKey = flag.String("key", "", "Pushover user key")
-var notifyOnJoin = flag.Bool("notify-join", false, "Send a notification when someone joins the party")
-var notifyOnLeave = flag.Bool("notify-leave", false, "Send a notification when someone leaves the party")
-var notifyOnFill = flag.Bool("notify-fill", true, "Send a notification when the party is filled")
-var notifyOnDisband = flag.Bool("notify-disband", false, "Send a notification when the party is disbanded")
+type Config struct {
+	WebsocketPort    int    `yaml:"websocket_port"`
+	PushoverAppToken string `yaml:"pushover_app_token"`
+	PushoverUserKey  string `yaml:"pushover_user_key"`
+	NotifyOnFill     bool   `yaml:"notifiy_on_fill"`
+	NotifyOnDisband  bool   `yaml:"notifiy_on_disband"`
+	NotifyOnJoin     bool   `yaml:"notify_on_join"`
+	NotifyOnLeave    bool   `yaml:"notify_on_leave"`
+}
 
 type Message struct {
 	Type string      `json:"msgtype"`
@@ -47,6 +52,14 @@ type Notification struct {
 	Sound   string
 }
 
+func loadConfig() error {
+	rawConfig, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	return yaml.Unmarshal(rawConfig, &config)
+}
+
 func addSpaceAfterCapitals(input string) string {
 	return spaceCapitalRegex.ReplaceAllString(input, "$1 $2")
 }
@@ -64,7 +77,7 @@ func readLogLing(data interface{}) LogLine {
 
 	timestamp, err := time.Parse(time.RFC3339Nano, splitString[1])
 	if err != nil {
-		log.Println("time: ", err)
+		log.Println("Unable to parse log timestamp: ", err)
 		return LogLine{}
 	}
 
@@ -82,13 +95,13 @@ func buildNotification(logLine LogLine) *Notification {
 	switch logLine.Code {
 	case 57: // party filled/disbanded
 		{
-			if *notifyOnFill && strings.Contains(logLine.Line, "have been filled") {
+			if config.NotifyOnFill && strings.Contains(logLine.Line, "have been filled") {
 				return &Notification{
 					Title:   "Your Party Has Filled",
 					Message: logLine.Line,
 					Sound:   "gamelan",
 				}
-			} else if *notifyOnDisband && strings.Contains(logLine.Line, "has been disbanded") {
+			} else if config.NotifyOnDisband && strings.Contains(logLine.Line, "has been disbanded") {
 				return &Notification{
 					Title:   "Your Party Has Disbanded",
 					Message: logLine.Line,
@@ -98,13 +111,13 @@ func buildNotification(logLine LogLine) *Notification {
 		}
 	case 8761: // join/leave/return to party
 		{
-			if *notifyOnJoin && strings.Contains(logLine.Line, "joins the party") {
+			if config.NotifyOnJoin && strings.Contains(logLine.Line, "joins the party") {
 				return &Notification{
 					Title:   "Player Joined Your Party",
 					Message: addSpaceAfterCapitals(logLine.Line),
 					Sound:   "none",
 				}
-			} else if *notifyOnLeave && strings.Contains(logLine.Line, "left the party") {
+			} else if config.NotifyOnLeave && strings.Contains(logLine.Line, "left the party") {
 				return &Notification{
 					Title:   "Player Left Your Party",
 					Message: addSpaceAfterCapitals(logLine.Line),
@@ -120,36 +133,38 @@ func buildNotification(logLine LogLine) *Notification {
 
 func sendNotification(notification *Notification) {
 	data := map[string]string{
-		"token":   appToken,
-		"user":    *pushoverUserKey,
+		"token":   config.PushoverAppToken,
+		"user":    config.PushoverUserKey,
 		"title":   notification.Title,
 		"message": notification.Message,
 		"sound":   notification.Sound,
 	}
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		log.Println("json encode: ", err)
+		log.Println("Unable to encode notification: ", err)
 		return
 	}
 	if _, err := http.Post(messageUrl, "application/json", bytes.NewReader(jsonData)); err != nil {
-		log.Println("http: ", err)
+		log.Println("Unable to send notification: ", err)
 		return
 	}
 	log.Printf("Sent notification: %s", notification.Title)
 }
 
 func main() {
-	flag.Parse()
-	log.SetFlags(0)
+
+	if err := loadConfig(); err != nil {
+		log.Fatal("Unable to read config: ", err)
+	}
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
-	u := url.URL{Scheme: "ws", Host: *serverAddress, Path: "MiniParse"}
+	u := url.URL{Scheme: "ws", Host: fmt.Sprintf("127.0.0.1:%d", config.WebsocketPort), Path: "MiniParse"}
 
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatal("dial:", err)
+		log.Fatal("Unable to connect to websocket server:", err)
 	}
 	defer c.Close()
 
@@ -162,12 +177,12 @@ func main() {
 		for {
 			_, rawMessage, err := c.ReadMessage()
 			if err != nil {
-				log.Println("read:", err)
+				log.Println("Unable to fetch message:", err)
 				return
 			}
 			message, err := decodeMessage(rawMessage)
 			if err != nil {
-				log.Println("decode: ", err)
+				log.Println("Unable to decode message: ", err)
 				return
 			}
 			if message.Type == "Chat" {

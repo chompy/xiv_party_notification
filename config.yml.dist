@@ -1,0 +1,20 @@
+# The port to connect to connect to INNACT or the ACT websocket plugin on
+websocket_port: 10501
+
+# Your application token from pushover.net
+pushover_app_token: <YOUR_PUSHOVER_APP_TOKEN>
+
+# Your user key from pushover.net
+pushover_user_key: <YOUR_PUSHOVER_USER_KEY>
+
+# Send a notification when your party fills
+notifiy_on_fill: true
+
+# Send a notification when the party is disbanded
+notifiy_on_disband: false
+
+# Send a notification when a player join your party
+notify_on_join: false
+
+# Send a notification when a player leaves your party
+notify_on_leave: false
