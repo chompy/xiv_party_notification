@@ -1,4 +1,4 @@
-module github.com/chompy/xiv_party_notify
+module github.com/chompy/xiv_party_notification
 
 go 1.21.4
 
