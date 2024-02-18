@@ -162,12 +162,17 @@ func main() {
 
 	u := url.URL{Scheme: "ws", Host: fmt.Sprintf("127.0.0.1:%d", config.WebsocketPort), Path: "MiniParse"}
 
-	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	var c *websocket.Conn = nil
+	var err error
+
+	// wait 5 seconds before trying to connect
+	time.Sleep(5 * time.Second)
+
+	c, _, err = websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatal("Unable to connect to websocket server:", err)
+		log.Fatalf("Failed to connect to websocket server at %s.", u.String())
 	}
 	defer c.Close()
-
 	log.Printf("Connected to websocket server at %s.", u.String())
 
 	done := make(chan struct{})
